@@ -1,39 +1,44 @@
-<<<<<<< HEAD
-# Hand Mouse
+# Hand Mouse Camera Preview
 
-Android Kotlin app that uses the front camera as a hand-controlled mouse:
+Beginner-friendly Android Kotlin project that runs from VS Code, terminal builds, and GitHub Actions.
 
-- CameraX captures frames in a foreground service.
-- MediaPipe Hand Landmarker detects hand landmarks.
-- Landmark 8, the index finger tip, drives a global cursor overlay.
-- Landmark 4 to landmark 8 distance detects a pinch.
-- Pinch dispatches a system tap through an Android Accessibility Service.
+This version includes:
 
-## Setup
+- Jetpack Compose UI
+- Start Tracking button
+- Stop Tracking button
+- Camera permission status
+- Overlay permission status
+- Accessibility service status
+- Tracking Enabled / Disabled text
+- CameraX preview shown on screen when tracking is enabled
 
-1. Open this folder in Android Studio.
-2. Download the MediaPipe model:
+Real hand tracking is not implemented yet. The code marks where to add CameraX `ImageAnalysis`, MediaPipe, overlay cursor handling, and accessibility tap handling later.
 
-   ```bash
-   ./gradlew :app:downloadHandModel
-   ```
+## Build In GitHub Actions
 
-   On Windows without a Gradle wrapper, run the same task from Android Studio's Gradle tool window, or use an installed `gradle` command:
+Push to the `main` branch. The workflow at `.github/workflows/build.yml` builds:
 
-   ```powershell
-   gradle :app:downloadHandModel
-   ```
+```bash
+gradle :app:assembleDebug
+```
 
-3. Build and install the app.
-4. Open Hand Mouse and grant:
-   - Camera permission
-   - Display over other apps permission
-   - Accessibility permission for "Hand Mouse Tap Service"
-5. Tap "Start hand mouse", then switch to another app.
+The generated APK is uploaded as a GitHub Actions artifact named:
 
-## Notes
+```text
+hand-mouse-debug-apk
+```
 
-The app uses a foreground service with `foregroundServiceType="camera"` so camera analysis can continue after leaving the setup screen. Android may still show a camera/privacy indicator while tracking is active.
-=======
-# hand-mouse-app
->>>>>>> c7e45985b1765cc5152e52d2e9844fef57084a6e
+## Local Terminal Build
+
+If Gradle is installed locally:
+
+```bash
+gradle :app:assembleDebug
+```
+
+The APK will be created at:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```

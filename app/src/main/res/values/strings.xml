@@ -1,9 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Hand Mouse</string>
-    <string name="accessibility_service_label">Hand Mouse Tap Service</string>
-    <string name="accessibility_service_description">Allows Hand Mouse to perform taps at the cursor position when you pinch.</string>
-    <string name="notification_channel_name">Hand mouse tracking</string>
-    <string name="notification_title">Hand Mouse is running</string>
-    <string name="notification_text">Move your index finger to control the cursor. Pinch to tap.</string>
+    <string name="accessibility_service_label">Hand Mouse Accessibility Service</string>
+    <string name="accessibility_service_description">Placeholder service for future gesture tap support.</string>
 </resources>

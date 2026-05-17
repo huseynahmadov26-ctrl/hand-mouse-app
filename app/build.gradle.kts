@@ -1,8 +1,7 @@
-import java.net.URL
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -25,37 +24,28 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    buildFeatures {
+        compose = true
+    }
 }
 
 dependencies {
     val cameraxVersion = "1.3.4"
 
+    implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.lifecycle:lifecycle-service:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    implementation("com.google.mediapipe:tasks-vision:0.10.26.1")
-}
-
-tasks.register("downloadHandModel") {
-    val modelUrl = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
-    val outputFile = layout.projectDirectory.file("src/main/assets/hand_landmarker.task")
-
-    outputs.file(outputFile)
-
-    doLast {
-        val target = outputFile.asFile
-        target.parentFile.mkdirs()
-        if (!target.exists()) {
-            println("Downloading MediaPipe Hand Landmarker model...")
-            URL(modelUrl).openStream().use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
-            }
-        } else {
-            println("Model already exists at ${target.absolutePath}")
-        }
-    }
+    debugImplementation("androidx.compose.ui:ui-tooling")
 }
