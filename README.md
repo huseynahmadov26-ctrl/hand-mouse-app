@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Hand Mouse
 
 Android Kotlin app that uses the front camera as a hand-controlled mouse:
@@ -33,3 +34,6 @@ Android Kotlin app that uses the front camera as a hand-controlled mouse:
 ## Notes
 
 The app uses a foreground service with `foregroundServiceType="camera"` so camera analysis can continue after leaving the setup screen. Android may still show a camera/privacy indicator while tracking is active.
+=======
+# hand-mouse-app
+>>>>>>> c7e45985b1765cc5152e52d2e9844fef57084a6e
