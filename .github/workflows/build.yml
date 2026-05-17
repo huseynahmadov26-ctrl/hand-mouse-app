@@ -45,7 +45,7 @@ jobs:
         if: steps.build_apk.outcome == 'failure'
         run: |
           echo "The useful error is usually below this line:"
-          grep -n -A 35 -B 8 -E "FAILURE: Build failed|\\* What went wrong:|Execution failed|Compilation error|error:|A failure occurred" build.log || true
+          grep -n -A 80 -B 15 -E "FAILURE: Build failed|\\* What went wrong:|Execution failed|Compilation error|error:|A failure occurred|requires libraries and applications|minCompileSdk|checkDebugAarMetadata" build.log || true
           exit 1
 
       - name: Upload debug APK
