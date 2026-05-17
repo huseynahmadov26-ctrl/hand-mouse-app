@@ -29,10 +29,19 @@ jobs:
           gradle-version: "8.11.1"
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --stacktrace 2>&1 | tee build.log
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: hand-mouse-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-log
+          path: build.log
