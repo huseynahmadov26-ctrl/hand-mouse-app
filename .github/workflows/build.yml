@@ -35,11 +35,21 @@ jobs:
         run: gradle --version
 
       - name: Build debug APK
+        id: build_apk
+        continue-on-error: true
         run: |
           set -o pipefail
           gradle :app:assembleDebug --stacktrace --console=plain 2>&1 | tee build.log
 
+      - name: Show real Gradle error
+        if: steps.build_apk.outcome == 'failure'
+        run: |
+          echo "The useful error is usually below this line:"
+          grep -n -A 35 -B 8 -E "FAILURE: Build failed|\\* What went wrong:|Execution failed|Compilation error|error:|A failure occurred" build.log || true
+          exit 1
+
       - name: Upload debug APK
+        if: steps.build_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: hand-mouse-debug-apk
