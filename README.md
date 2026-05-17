@@ -1,44 +1,67 @@
-# Hand Mouse Camera Preview
+# Hand Mouse Controller
 
-Beginner-friendly Android Kotlin project that runs from VS Code, terminal builds, and GitHub Actions.
+Android Kotlin app that controls the phone with hand gestures.
 
-This version includes:
+- Index finger tip moves a cursor overlay.
+- Thumb + index pinch performs a tap.
+- CameraX captures frames.
+- MediaPipe Hand Landmarker detects hand landmarks.
+- Android Accessibility Service performs taps with `dispatchGesture`.
+- WindowManager shows the cursor above other apps.
 
-- Jetpack Compose UI
-- Start Tracking button
-- Stop Tracking button
-- Camera permission status
-- Overlay permission status
-- Accessibility service status
-- Tracking Enabled / Disabled text
-- CameraX preview shown on screen when tracking is enabled
+## Build APK From Terminal
 
-Real hand tracking is not implemented yet. The code marks where to add CameraX `ImageAnalysis`, MediaPipe, overlay cursor handling, and accessibility tap handling later.
-
-## Build In GitHub Actions
-
-Push to the `main` branch. The workflow at `.github/workflows/build.yml` builds:
+Java 17 is required.
 
 ```bash
-gradle :app:assembleDebug
+./gradlew assembleDebug
 ```
 
-The generated APK is uploaded as a GitHub Actions artifact named:
+APK output:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+## Build APK With GitHub Actions
+
+Push to the `main` branch. The workflow in `.github/workflows/build.yml` runs:
+
+```bash
+./gradlew assembleDebug
+```
+
+Download the APK from the GitHub Actions artifact:
 
 ```text
 hand-mouse-debug-apk
 ```
 
-## Local Terminal Build
+## Install APK With ADB
 
-If Gradle is installed locally:
+Connect your phone with USB debugging enabled, then run:
 
 ```bash
-gradle :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The APK will be created at:
+## Phone Setup
 
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
+1. Open the app.
+2. Tap `Open Overlay Permission Settings`.
+3. Allow `Display over other apps` for Hand Mouse.
+4. Return to the app.
+5. Tap `Open Accessibility Settings`.
+6. Enable `Hand Mouse Accessibility Service`.
+7. Return to the app.
+8. Tap `Start Tracking`.
+
+Android will show camera/foreground-service indicators while tracking is running.
+
+## Code Map
+
+- `MainActivity.kt`: Jetpack Compose UI and camera preview surface.
+- `HandMouseService.kt`: CameraX frame analysis, MediaPipe tracking, cursor movement, pinch detection.
+- `HandTracker.kt`: MediaPipe Hand Landmarker setup.
+- `CursorOverlay.kt`: global WindowManager cursor.
+- `MyAccessibilityService.kt`: tap simulation with `dispatchGesture`.

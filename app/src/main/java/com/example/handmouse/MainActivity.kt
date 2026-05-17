@@ -6,15 +6,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,6 +79,15 @@ private fun HandMouseApp() {
     ) { granted ->
         cameraPermissionGranted = granted
         trackingEnabled = granted
+        if (granted) {
+            context.startHandMouseService()
+        }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        // Android 13+ notification permission only affects the foreground notification display.
     }
 
     // Refresh permission status when returning from Android settings screens.
@@ -131,6 +138,10 @@ private fun HandMouseApp() {
                         onClick = {
                             if (cameraPermissionGranted) {
                                 trackingEnabled = true
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                                context.startHandMouseService()
                             } else {
                                 cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                             }
@@ -144,6 +155,7 @@ private fun HandMouseApp() {
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5F6368)),
                         onClick = {
                             trackingEnabled = false
+                            context.stopHandMouseService()
                         }
                     ) {
                         Text("Stop Tracking")
@@ -171,7 +183,7 @@ private fun HandMouseApp() {
                     }
                 }
 
-                CameraPreviewPanel(
+                ServiceCameraPreviewPanel(
                     trackingEnabled = trackingEnabled,
                     cameraPermissionGranted = cameraPermissionGranted
                 )
@@ -227,7 +239,7 @@ private fun StatusRow(label: String, enabled: Boolean) {
 }
 
 @Composable
-private fun CameraPreviewPanel(
+private fun ServiceCameraPreviewPanel(
     trackingEnabled: Boolean,
     cameraPermissionGranted: Boolean
 ) {
@@ -240,7 +252,7 @@ private fun CameraPreviewPanel(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (trackingEnabled && cameraPermissionGranted) {
-                CameraPreview()
+                ServiceCameraPreview()
             } else {
                 Text(
                     modifier = Modifier.align(Alignment.Center),
@@ -253,10 +265,7 @@ private fun CameraPreviewPanel(
 }
 
 @Composable
-private fun CameraPreview() {
-    val context = LocalContext.current
-    val lifecycleOwner = context as LifecycleOwner
-
+private fun ServiceCameraPreview() {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { viewContext ->
@@ -265,41 +274,16 @@ private fun CameraPreview() {
             }
         },
         update = { previewView ->
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-            cameraProviderFuture.addListener(
-                {
-                    val cameraProvider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build().also { cameraPreview ->
-                        cameraPreview.setSurfaceProvider(previewView.surfaceProvider)
-                    }
-
-                    // This is the future hand-tracking integration point:
-                    // add ImageAnalysis here, pass frames to MediaPipe, and update UI state.
-                    cameraProvider.unbindAll()
-                    val cameraSelector = if (cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
-                        CameraSelector.DEFAULT_FRONT_CAMERA
-                    } else {
-                        CameraSelector.DEFAULT_BACK_CAMERA
-                    }
-                    cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        cameraSelector,
-                        preview
-                    )
-                },
-                ContextCompat.getMainExecutor(context)
-            )
+            // The foreground service owns CameraX. This UI only supplies the preview surface.
+            // Hand tracking logic runs in HandMouseService through the ImageAnalysis use case.
+            HandMouseService.attachPreview(previewView.surfaceProvider)
         }
     )
 
     DisposableEffect(Unit) {
         onDispose {
-            // Stop preview when Stop Tracking removes this composable.
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-            cameraProviderFuture.addListener(
-                { cameraProviderFuture.get().unbindAll() },
-                ContextCompat.getMainExecutor(context)
-            )
+            // When the app UI disappears, the service keeps hand tracking with analysis only.
+            HandMouseService.attachPreview(null)
         }
     }
 }
@@ -315,6 +299,20 @@ private fun Context.openOverlaySettings() {
         Uri.parse("package:$packageName")
     )
     startActivity(intent)
+}
+
+private fun Context.startHandMouseService() {
+    val intent = Intent(this, HandMouseService::class.java).apply {
+        action = HandMouseService.ACTION_START
+    }
+    ContextCompat.startForegroundService(this, intent)
+}
+
+private fun Context.stopHandMouseService() {
+    val intent = Intent(this, HandMouseService::class.java).apply {
+        action = HandMouseService.ACTION_STOP
+    }
+    startService(intent)
 }
 
 private fun Context.isAccessibilityServiceEnabled(): Boolean {
