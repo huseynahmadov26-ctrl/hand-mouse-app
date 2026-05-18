@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
@@ -68,6 +69,7 @@ class MainActivity : ComponentActivity() {
 private fun HandMouseApp() {
     val context = LocalContext.current
     val lifecycleOwner = context as LifecycleOwner
+    val versionLabel = remember { context.appVersionLabel() }
     val prefs = remember {
         context.getSharedPreferences(ForegroundTrackingService.PREFS_NAME, Context.MODE_PRIVATE)
     }
@@ -149,6 +151,11 @@ private fun HandMouseApp() {
                     text = "Hand Mouse",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = versionLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF5F6368)
                 )
 
                 StatusPanel(
@@ -409,6 +416,12 @@ private fun SharedPreferences.putFloat(key: String, value: Float) {
 
 private fun SharedPreferences.putBoolean(key: String, value: Boolean) {
     edit().putBoolean(key, value).apply()
+}
+
+private fun Context.appVersionLabel(): String {
+    val packageInfo = packageManager.getPackageInfo(packageName, 0)
+    val versionCode = PackageInfoCompat.getLongVersionCode(packageInfo)
+    return "Version ${packageInfo.versionName} ($versionCode)"
 }
 
 private fun Context.hasCameraPermission(): Boolean =
