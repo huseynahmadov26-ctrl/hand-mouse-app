@@ -9,11 +9,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.ImageFormat
 import android.graphics.Matrix
-import android.graphics.Rect
-import android.graphics.YuvImage
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -34,7 +30,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
-import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
@@ -49,6 +45,11 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
     private var handTracker: HandTracker? = null
     private var cursorOverlay: CursorOverlay? = null
     private var previewSurfaceProvider: Preview.SurfaceProvider? = null
+    private var reusableBitmap: Bitmap? = null
+    private var reusableBitmapWidth = 0
+    private var reusableBitmapHeight = 0
+    private var reusableRowBuffer = ByteArray(0)
+    private var reusableBitmapBuffer: ByteBuffer? = null
     private var smoothedX = Float.NaN
     private var smoothedY = Float.NaN
     private var lastRawX = Float.NaN
@@ -142,9 +143,9 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         val provider = cameraProvider ?: return
 
         val analysis = ImageAnalysis.Builder()
-            .setTargetResolution(Size(640, 480))
+            .setTargetResolution(Size(480, 360))
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .build()
             .also { imageAnalysis ->
                 imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
@@ -155,7 +156,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         val useCases = mutableListOf<UseCase>(analysis)
         previewSurfaceProvider?.let { surfaceProvider ->
             val preview = Preview.Builder()
-                .setTargetResolution(Size(640, 480))
+                .setTargetResolution(Size(480, 360))
                 .build()
                 .also { cameraPreview ->
                     cameraPreview.setSurfaceProvider(surfaceProvider)
@@ -181,7 +182,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
                 return
             }
 
-            val bitmap = imageProxy.toRgbBitmap()
+            val bitmap = imageProxy.copyRgbaToReusableBitmap()
             val rotatedBitmap = bitmap.rotateIfNeeded(imageProxy.imageInfo.rotationDegrees)
             tracker.detect(rotatedBitmap, timestampMs)
         } catch (error: Throwable) {
@@ -367,78 +368,44 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         }
     }
 
-    private fun ImageProxy.toRgbBitmap(): Bitmap {
-        val nv21 = yuv420ToNv21()
-        val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
-        val output = ByteArrayOutputStream()
-        yuvImage.compressToJpeg(Rect(0, 0, width, height), JPEG_QUALITY, output)
-        val jpegBytes = output.toByteArray()
-        return BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
-            ?: error("Camera frame could not be decoded")
-    }
+    private fun ImageProxy.copyRgbaToReusableBitmap(): Bitmap {
+        val bitmap = if (reusableBitmap == null || reusableBitmapWidth != width || reusableBitmapHeight != height) {
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+                reusableBitmap = it
+                reusableBitmapWidth = width
+                reusableBitmapHeight = height
+            }
+        } else {
+            reusableBitmap!!
+        }
 
-    private fun ImageProxy.yuv420ToNv21(): ByteArray {
-        val ySize = width * height
-        val uvSize = width * height / 4
-        val nv21 = ByteArray(ySize + uvSize * 2)
-
-        copyPlane(
-            source = planes[0],
-            width = width,
-            height = height,
-            output = nv21,
-            outputOffset = 0,
-            outputPixelStride = 1
-        )
-
-        // NV21 stores interleaved VU bytes after the full Y plane.
-        copyPlane(
-            source = planes[2],
-            width = width / 2,
-            height = height / 2,
-            output = nv21,
-            outputOffset = ySize,
-            outputPixelStride = 2
-        )
-        copyPlane(
-            source = planes[1],
-            width = width / 2,
-            height = height / 2,
-            output = nv21,
-            outputOffset = ySize + 1,
-            outputPixelStride = 2
-        )
-
-        return nv21
-    }
-
-    private fun copyPlane(
-        source: ImageProxy.PlaneProxy,
-        width: Int,
-        height: Int,
-        output: ByteArray,
-        outputOffset: Int,
-        outputPixelStride: Int
-    ) {
-        val buffer = source.buffer
-        val rowStride = source.rowStride
-        val pixelStride = source.pixelStride
-        val row = ByteArray(rowStride)
-        var outputIndex = outputOffset
+        val plane = planes[0]
+        val buffer = plane.buffer
+        val rowStride = plane.rowStride
+        val packedRowBytes = width * RGBA_BYTES_PER_PIXEL
+        if (reusableRowBuffer.size < packedRowBytes * height) {
+            reusableRowBuffer = ByteArray(packedRowBytes * height)
+            reusableBitmapBuffer = ByteBuffer.wrap(reusableRowBuffer)
+        }
 
         buffer.rewind()
+        var outputOffset = 0
         for (rowIndex in 0 until height) {
-            val bytesToRead = minOf(buffer.remaining(), rowStride)
-            if (bytesToRead <= 0) return
-            buffer.get(row, 0, bytesToRead)
-
-            var inputIndex = 0
-            for (column in 0 until width) {
-                output[outputIndex] = row[inputIndex]
-                outputIndex += outputPixelStride
-                inputIndex += pixelStride
+            buffer.get(reusableRowBuffer, outputOffset, packedRowBytes)
+            outputOffset += packedRowBytes
+            val padding = rowStride - packedRowBytes
+            if (padding > 0 && rowIndex < height - 1) {
+                buffer.position(buffer.position() + padding)
             }
         }
+
+        val bitmapBuffer = reusableBitmapBuffer ?: ByteBuffer.wrap(reusableRowBuffer).also {
+            reusableBitmapBuffer = it
+        }
+        bitmapBuffer.position(0)
+        bitmapBuffer.limit(packedRowBytes * height)
+        bitmap.copyPixelsFromBuffer(bitmapBuffer)
+        return bitmap
     }
 
     private fun Bitmap.rotateIfNeeded(degrees: Int): Bitmap {
@@ -488,7 +455,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         val mirrorCursor: Boolean = true
     ) {
         val smoothingAlpha: Float
-            get() = (0.85f - smoothing * 0.65f).coerceIn(0.12f, 0.85f)
+            get() = (0.9f - smoothing * 0.55f).coerceIn(0.35f, 0.9f)
 
         companion object {
             fun from(prefs: SharedPreferences): TrackingSettings =
@@ -507,7 +474,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         private const val TAG = "ForegroundTracking"
         private const val CHANNEL_ID = "hand_mouse"
         private const val NOTIFICATION_ID = 100
-        private const val TARGET_FPS = 24
+        private const val TARGET_FPS = 30
         private const val HOLD_THRESHOLD_MS = 500L
         private const val JITTER_DEAD_ZONE_PX = 2.5f
         private const val MAX_RAW_JUMP_RATIO = 0.35f
@@ -518,7 +485,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         private const val SCROLL_MAX_TRAVEL_PX = 520f
         private const val SCROLL_MIN_INTERVAL_MS = 90L
         private const val SCROLL_DURATION_MS = 170L
-        private const val JPEG_QUALITY = 80
+        private const val RGBA_BYTES_PER_PIXEL = 4
 
         const val PREFS_NAME = "hand_mouse_settings"
         const val KEY_CURSOR_SENSITIVITY = "cursor_sensitivity"

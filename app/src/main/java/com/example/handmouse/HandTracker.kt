@@ -110,7 +110,7 @@ class HandTracker(
         private const val THUMB_TIP = 4
         private const val INDEX_TIP = 8
         private const val MIDDLE_TIP = 12
-        private const val DEFAULT_TARGET_FPS = 24
+        private const val DEFAULT_TARGET_FPS = 30
         private const val DEFAULT_CLICK_THRESHOLD = 0.055f
         private const val INDEX_MIDDLE_THRESHOLD = 0.06f
     }

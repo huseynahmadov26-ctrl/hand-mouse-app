@@ -113,23 +113,12 @@ private fun HandMouseApp() {
         // Android 13+ notification permission only affects foreground notification visibility.
     }
 
-    DisposableEffect(lifecycleOwner, backgroundTracking, trackingEnabled) {
+    DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> {
-                    cameraPermissionGranted = context.hasCameraPermission()
-                    overlayPermissionGranted = Settings.canDrawOverlays(context)
-                    accessibilityEnabled = context.isAccessibilityServiceEnabled()
-                }
-
-                Lifecycle.Event.ON_STOP -> {
-                    if (trackingEnabled && !backgroundTracking) {
-                        trackingEnabled = false
-                        context.stopForegroundTrackingService()
-                    }
-                }
-
-                else -> Unit
+            if (event == Lifecycle.Event.ON_RESUME) {
+                cameraPermissionGranted = context.hasCameraPermission()
+                overlayPermissionGranted = Settings.canDrawOverlays(context)
+                accessibilityEnabled = context.isAccessibilityServiceEnabled()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
