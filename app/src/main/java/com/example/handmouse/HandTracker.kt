@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.os.SystemClock
 import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.framework.image.MPImage
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
@@ -16,6 +17,8 @@ class HandTracker(
 ) {
     private val handLandmarker: HandLandmarker
     private var lastFrameMs = 0L
+    @Volatile
+    private var processingFrame = false
     private var minFrameIntervalMs = 1000L / DEFAULT_TARGET_FPS
     private var clickThreshold = DEFAULT_CLICK_THRESHOLD
 
@@ -26,12 +29,14 @@ class HandTracker(
 
         val options = HandLandmarker.HandLandmarkerOptions.builder()
             .setBaseOptions(baseOptions)
-            .setRunningMode(RunningMode.IMAGE)
+            .setRunningMode(RunningMode.LIVE_STREAM)
             .setNumHands(1)
-            .setMinHandDetectionConfidence(0.55f)
-            .setMinHandPresenceConfidence(0.55f)
-            .setMinTrackingConfidence(0.55f)
+            .setMinHandDetectionConfidence(0.45f)
+            .setMinHandPresenceConfidence(0.45f)
+            .setMinTrackingConfidence(0.45f)
+            .setResultListener(this::onResult)
             .setErrorListener { error ->
+                processingFrame = false
                 listener.onTrackerError(error.message ?: error.toString())
             }
             .build()
@@ -45,16 +50,17 @@ class HandTracker(
     }
 
     fun canAcceptFrame(now: Long = SystemClock.uptimeMillis()): Boolean =
-        now - lastFrameMs >= minFrameIntervalMs
+        !processingFrame && now - lastFrameMs >= minFrameIntervalMs
 
     fun detect(bitmap: Bitmap, timestampMs: Long = SystemClock.uptimeMillis()): Boolean {
         if (!canAcceptFrame(timestampMs)) {
             return false
         }
 
+        processingFrame = true
         lastFrameMs = timestampMs
         val image = BitmapImageBuilder(bitmap).build()
-        onResult(handLandmarker.detect(image))
+        handLandmarker.detectAsync(image, timestampMs)
         return true
     }
 
@@ -62,7 +68,9 @@ class HandTracker(
         handLandmarker.close()
     }
 
-    private fun onResult(result: HandLandmarkerResult) {
+    private fun onResult(result: HandLandmarkerResult, @Suppress("UNUSED_PARAMETER") image: MPImage) {
+        processingFrame = false
+
         val hand = result.landmarks().firstOrNull()
         if (hand == null || hand.size <= MIDDLE_TIP) {
             listener.onHandLost()

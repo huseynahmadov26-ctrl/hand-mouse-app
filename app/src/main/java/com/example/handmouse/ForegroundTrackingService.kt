@@ -22,8 +22,6 @@ import android.view.WindowManager
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
-import androidx.camera.core.Preview
-import androidx.camera.core.UseCase
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -44,7 +42,6 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
     private var cameraProvider: ProcessCameraProvider? = null
     private var handTracker: HandTracker? = null
     private var cursorOverlay: CursorOverlay? = null
-    private var previewSurfaceProvider: Preview.SurfaceProvider? = null
     private var reusableBitmap: Bitmap? = null
     private var reusableBitmapWidth = 0
     private var reusableBitmapHeight = 0
@@ -96,7 +93,6 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         handTracker = HandTracker(this, this).also {
             it.updateSettings(TARGET_FPS, settings.clickThreshold)
         }
-        previewSurfaceProvider = pendingPreviewSurfaceProvider
         startCamera()
     }
 
@@ -143,7 +139,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         val provider = cameraProvider ?: return
 
         val analysis = ImageAnalysis.Builder()
-            .setTargetResolution(Size(480, 360))
+            .setTargetResolution(Size(320, 240))
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .build()
@@ -153,17 +149,6 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
                 }
             }
 
-        val useCases = mutableListOf<UseCase>(analysis)
-        previewSurfaceProvider?.let { surfaceProvider ->
-            val preview = Preview.Builder()
-                .setTargetResolution(Size(480, 360))
-                .build()
-                .also { cameraPreview ->
-                    cameraPreview.setSurfaceProvider(surfaceProvider)
-                }
-            useCases += preview
-        }
-
         val cameraSelector = if (provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
             CameraSelector.DEFAULT_FRONT_CAMERA
         } else {
@@ -171,7 +156,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         }
 
         provider.unbindAll()
-        provider.bindToLifecycle(this, cameraSelector, *useCases.toTypedArray())
+        provider.bindToLifecycle(this, cameraSelector, analysis)
     }
 
     private fun analyzeFrame(imageProxy: ImageProxy) {
@@ -184,7 +169,8 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
 
             val bitmap = imageProxy.copyRgbaToReusableBitmap()
             val rotatedBitmap = bitmap.rotateIfNeeded(imageProxy.imageInfo.rotationDegrees)
-            tracker.detect(rotatedBitmap, timestampMs)
+            val frameForMediaPipe = rotatedBitmap.copy(Bitmap.Config.ARGB_8888, false)
+            tracker.detect(frameForMediaPipe, timestampMs)
         } catch (error: Throwable) {
             Log.e(TAG, "Frame analysis failed", error)
         } finally {
@@ -434,11 +420,6 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-    private fun setPreviewSurfaceProvider(provider: Preview.SurfaceProvider?) {
-        previewSurfaceProvider = provider
-        bindCameraUseCases()
-    }
-
     private enum class GestureState {
         IDLE,
         CLICK_PENDING,
@@ -474,7 +455,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         private const val TAG = "ForegroundTracking"
         private const val CHANNEL_ID = "hand_mouse"
         private const val NOTIFICATION_ID = 100
-        private const val TARGET_FPS = 30
+        private const val TARGET_FPS = 24
         private const val HOLD_THRESHOLD_MS = 500L
         private const val JITTER_DEAD_ZONE_PX = 2.5f
         private const val MAX_RAW_JUMP_RATIO = 0.35f
@@ -501,15 +482,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         @Volatile
         private var instance: ForegroundTrackingService? = null
 
-        @Volatile
-        private var pendingPreviewSurfaceProvider: Preview.SurfaceProvider? = null
-
-        fun attachPreview(provider: Preview.SurfaceProvider?) {
-            pendingPreviewSurfaceProvider = provider
-            instance?.mainHandler?.post {
-                instance?.setPreviewSurfaceProvider(provider)
-            }
-        }
+        fun attachPreview(@Suppress("UNUSED_PARAMETER") provider: Any?) = Unit
 
         private fun distanceFrom(startX: Float, startY: Float, endX: Float, endY: Float): Float =
             hypot((endX - startX).toDouble(), (endY - startY).toDouble()).toFloat()
