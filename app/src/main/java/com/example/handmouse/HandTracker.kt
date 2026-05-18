@@ -17,6 +17,7 @@ class HandTracker(
 ) {
     private val handLandmarker: HandLandmarker
     private var lastFrameMs = 0L
+    @Volatile
     private var processingFrame = false
     private var minFrameIntervalMs = 1000L / DEFAULT_TARGET_FPS
     private var clickThreshold = DEFAULT_CLICK_THRESHOLD
@@ -48,16 +49,19 @@ class HandTracker(
         this.clickThreshold = clickThreshold.coerceIn(0.025f, 0.12f)
     }
 
-    fun detect(bitmap: Bitmap) {
-        val now = SystemClock.uptimeMillis()
-        if (processingFrame || now - lastFrameMs < minFrameIntervalMs) {
-            return
+    fun canAcceptFrame(now: Long = SystemClock.uptimeMillis()): Boolean =
+        !processingFrame && now - lastFrameMs >= minFrameIntervalMs
+
+    fun detect(bitmap: Bitmap, timestampMs: Long = SystemClock.uptimeMillis()): Boolean {
+        if (!canAcceptFrame(timestampMs)) {
+            return false
         }
 
         processingFrame = true
-        lastFrameMs = now
+        lastFrameMs = timestampMs
         val image = BitmapImageBuilder(bitmap).build()
-        handLandmarker.detectAsync(image, now)
+        handLandmarker.detectAsync(image, timestampMs)
+        return true
     }
 
     fun close() {

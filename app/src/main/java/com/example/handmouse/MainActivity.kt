@@ -93,6 +93,9 @@ private fun HandMouseApp() {
     var backgroundTracking by remember {
         mutableStateOf(prefs.getBoolean(ForegroundTrackingService.KEY_BACKGROUND_TRACKING, true))
     }
+    var mirrorCursor by remember {
+        mutableStateOf(prefs.getBoolean(ForegroundTrackingService.KEY_MIRROR_CURSOR, true))
+    }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -225,6 +228,7 @@ private fun HandMouseApp() {
                     clickThreshold = clickThreshold,
                     scrollSpeed = scrollSpeed,
                     backgroundTracking = backgroundTracking,
+                    mirrorCursor = mirrorCursor,
                     onCursorSensitivityChange = {
                         cursorSensitivity = it
                         prefs.putFloat(ForegroundTrackingService.KEY_CURSOR_SENSITIVITY, it)
@@ -244,6 +248,10 @@ private fun HandMouseApp() {
                     onBackgroundTrackingChange = {
                         backgroundTracking = it
                         prefs.putBoolean(ForegroundTrackingService.KEY_BACKGROUND_TRACKING, it)
+                    },
+                    onMirrorCursorChange = {
+                        mirrorCursor = it
+                        prefs.putBoolean(ForegroundTrackingService.KEY_MIRROR_CURSOR, it)
                     }
                 )
 
@@ -308,11 +316,13 @@ private fun SettingsPanel(
     clickThreshold: Float,
     scrollSpeed: Float,
     backgroundTracking: Boolean,
+    mirrorCursor: Boolean,
     onCursorSensitivityChange: (Float) -> Unit,
     onSmoothingChange: (Float) -> Unit,
     onClickThresholdChange: (Float) -> Unit,
     onScrollSpeedChange: (Float) -> Unit,
-    onBackgroundTrackingChange: (Boolean) -> Unit
+    onBackgroundTrackingChange: (Boolean) -> Unit,
+    onMirrorCursorChange: (Boolean) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -328,18 +338,28 @@ private fun SettingsPanel(
             SettingSlider("Smoothing", smoothing, 0f..1f, onSmoothingChange)
             SettingSlider("Click threshold", clickThreshold, 0.025f..0.12f, onClickThresholdChange)
             SettingSlider("Scroll speed", scrollSpeed, 0.5f..3f, onScrollSpeedChange)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Run in Background")
-                Switch(
-                    checked = backgroundTracking,
-                    onCheckedChange = onBackgroundTrackingChange
-                )
-            }
+            SettingsSwitch("Mirror cursor", mirrorCursor, onMirrorCursorChange)
+            SettingsSwitch("Run in Background", backgroundTracking, onBackgroundTrackingChange)
         }
+    }
+}
+
+@Composable
+private fun SettingsSwitch(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
     }
 }
 

@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.util.Size
@@ -172,9 +173,15 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
 
     private fun analyzeFrame(imageProxy: ImageProxy) {
         try {
+            val tracker = handTracker ?: return
+            val timestampMs = SystemClock.uptimeMillis()
+            if (!tracker.canAcceptFrame(timestampMs)) {
+                return
+            }
+
             val bitmap = imageProxy.copyToReusableBitmap()
             val rotatedBitmap = bitmap.rotateIfNeeded(imageProxy.imageInfo.rotationDegrees)
-            handTracker?.detect(rotatedBitmap)
+            tracker.detect(rotatedBitmap, timestampMs)
         } catch (error: Throwable) {
             Log.e(TAG, "Frame analysis failed", error)
         } finally {
@@ -224,7 +231,8 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
 
     private fun mapIndexTipToScreen(indexX: Float, indexY: Float): Pair<Float, Float> {
         val sensitivity = settings.cursorSensitivity
-        val scaledX = ((1f - indexX) - 0.5f) * sensitivity + 0.5f
+        val normalizedX = if (settings.mirrorCursor) 1f - indexX else indexX
+        val scaledX = (normalizedX - 0.5f) * sensitivity + 0.5f
         val scaledY = (indexY - 0.5f) * sensitivity + 0.5f
         return Pair(
             (scaledX.coerceIn(0f, 1f) * screenWidth),
@@ -418,7 +426,8 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         val smoothing: Float = 0.55f,
         val clickThreshold: Float = 0.055f,
         val scrollSpeed: Float = 1.3f,
-        val backgroundTracking: Boolean = true
+        val backgroundTracking: Boolean = true,
+        val mirrorCursor: Boolean = true
     ) {
         val smoothingAlpha: Float
             get() = (0.85f - smoothing * 0.65f).coerceIn(0.12f, 0.85f)
@@ -430,7 +439,8 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
                     smoothing = prefs.getFloat(KEY_SMOOTHING, 0.55f),
                     clickThreshold = prefs.getFloat(KEY_CLICK_THRESHOLD, 0.055f),
                     scrollSpeed = prefs.getFloat(KEY_SCROLL_SPEED, 1.3f),
-                    backgroundTracking = prefs.getBoolean(KEY_BACKGROUND_TRACKING, true)
+                    backgroundTracking = prefs.getBoolean(KEY_BACKGROUND_TRACKING, true),
+                    mirrorCursor = prefs.getBoolean(KEY_MIRROR_CURSOR, true)
                 )
         }
     }
@@ -457,6 +467,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         const val KEY_CLICK_THRESHOLD = "click_threshold"
         const val KEY_SCROLL_SPEED = "scroll_speed"
         const val KEY_BACKGROUND_TRACKING = "background_tracking"
+        const val KEY_MIRROR_CURSOR = "mirror_cursor"
 
         const val ACTION_START = "com.example.handmouse.START"
         const val ACTION_STOP = "com.example.handmouse.STOP"
