@@ -175,7 +175,8 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
             }
 
             val bitmap = imageProxy.copyRgbaToReusableBitmap()
-            val frameForMediaPipe = bitmap.rotateIfNeeded(imageProxy.imageInfo.rotationDegrees)
+            val rotated = bitmap.rotateIfNeeded(imageProxy.imageInfo.rotationDegrees)
+            val frameForMediaPipe = rotated.copy(Bitmap.Config.ARGB_8888, false)
             tracker.detect(frameForMediaPipe, timestampMs)
         } catch (error: Throwable) {
             Log.e(TAG, "Frame analysis failed", error)
