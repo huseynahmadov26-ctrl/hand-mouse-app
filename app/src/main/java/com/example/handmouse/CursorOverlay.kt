@@ -38,6 +38,15 @@ class CursorOverlay(context: Context) {
 
     fun show() {
         if (!isShown) {
+            val bounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                windowManager.currentWindowMetrics.bounds
+            } else {
+                @Suppress("DEPRECATION")
+                val metrics = cursorView.resources.displayMetrics
+                android.graphics.Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
+            }
+            params.x = bounds.centerX() - cursorSizePx / 2
+            params.y = bounds.centerY() - cursorSizePx / 2
             windowManager.addView(cursorView, params)
             isShown = true
         }
