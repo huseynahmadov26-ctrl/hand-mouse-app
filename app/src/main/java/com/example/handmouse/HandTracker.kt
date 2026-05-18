@@ -24,6 +24,7 @@ class HandTracker(
     private var clickThreshold = DEFAULT_CLICK_THRESHOLD
     private var thumbIndexPinching = false
     private var indexMiddlePinching = false
+    private var thumbIndexStableFrames = 0
 
     init {
         val baseOptions = BaseOptions.builder()
@@ -78,6 +79,7 @@ class HandTracker(
         if (hand == null || hand.size <= MIDDLE_TIP) {
             thumbIndexPinching = false
             indexMiddlePinching = false
+            thumbIndexStableFrames = 0
             listener.onHandLost()
             return
         }
@@ -109,12 +111,21 @@ class HandTracker(
             (indexTip.y() - middleTip.y()).toDouble()
         ).toFloat() / handScale
 
-        val thumbIndexCloseThreshold = clickThreshold / DEFAULT_HAND_SCALE
-        val thumbIndexOpenThreshold = thumbIndexCloseThreshold * PINCH_RELEASE_MULTIPLIER
-        thumbIndexPinching = if (thumbIndexPinching) {
-            thumbIndexDistance < thumbIndexOpenThreshold
-        } else {
-            thumbIndexDistance < thumbIndexCloseThreshold
+        val thumbIndexCloseThreshold = clickThreshold.coerceIn(PINCH_CLOSE_THRESHOLD, PINCH_OPEN_THRESHOLD)
+        val thumbIndexOpenThreshold = PINCH_OPEN_THRESHOLD
+        when {
+            thumbIndexDistance < thumbIndexCloseThreshold -> {
+                thumbIndexStableFrames = (thumbIndexStableFrames + 1).coerceAtMost(PINCH_STABLE_FRAMES)
+            }
+            thumbIndexDistance > thumbIndexOpenThreshold -> {
+                thumbIndexStableFrames = (thumbIndexStableFrames - 1).coerceAtLeast(-PINCH_STABLE_FRAMES)
+            }
+        }
+
+        thumbIndexPinching = when {
+            thumbIndexStableFrames >= PINCH_STABLE_FRAMES -> true
+            thumbIndexStableFrames <= -PINCH_STABLE_FRAMES -> false
+            else -> thumbIndexPinching
         }
 
         indexMiddlePinching = if (indexMiddlePinching) {
@@ -159,7 +170,9 @@ class HandTracker(
         private const val DEFAULT_CLICK_THRESHOLD = 0.055f
         private const val DEFAULT_HAND_SCALE = 0.18f
         private const val MIN_HAND_SCALE = 0.08f
-        private const val PINCH_RELEASE_MULTIPLIER = 1.45f
+        private const val PINCH_CLOSE_THRESHOLD = 0.04f
+        private const val PINCH_OPEN_THRESHOLD = 0.06f
+        private const val PINCH_STABLE_FRAMES = 3
         private const val INDEX_MIDDLE_CLOSE_THRESHOLD = 0.34f
         private const val INDEX_MIDDLE_OPEN_THRESHOLD = 0.48f
     }

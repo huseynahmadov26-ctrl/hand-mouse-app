@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Matrix
 import android.os.Build
 import android.os.Handler
@@ -47,6 +48,11 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
     private var reusableBitmapHeight = 0
     private var reusableRowBuffer = ByteArray(0)
     private var reusableBitmapBuffer: ByteBuffer? = null
+    private var reusableRotatedBitmap: Bitmap? = null
+    private var reusableRotatedBitmapRotation = 0
+    private val reusableRotationCanvas = Canvas()
+    private val reusableRotationMatrix = Matrix()
+    private var lastClickMs = 0L
     private var smoothedX = Float.NaN
     private var smoothedY = Float.NaN
     private var lastRawX = Float.NaN
@@ -140,7 +146,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         val provider = cameraProvider ?: return
 
         val analysis = ImageAnalysis.Builder()
-            .setTargetResolution(Size(320, 240))
+            .setTargetResolution(Size(640, 480))
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .build()
@@ -169,8 +175,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
             }
 
             val bitmap = imageProxy.copyRgbaToReusableBitmap()
-            val rotatedBitmap = bitmap.rotateIfNeeded(imageProxy.imageInfo.rotationDegrees)
-            val frameForMediaPipe = rotatedBitmap.copy(Bitmap.Config.ARGB_8888, false)
+            val frameForMediaPipe = bitmap.rotateIfNeeded(imageProxy.imageInfo.rotationDegrees)
             tracker.detect(frameForMediaPipe, timestampMs)
         } catch (error: Throwable) {
             Log.e(TAG, "Frame analysis failed", error)
@@ -274,6 +279,10 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
 
     private fun handleClickHoldGesture(pinching: Boolean) {
         val now = System.currentTimeMillis()
+        if (gestureState == GestureState.IDLE && pinching && now - lastClickMs < CLICK_COOLDOWN_MS) {
+            return
+        }
+
         when (gestureState) {
             GestureState.IDLE -> {
                 if (pinching) {
@@ -291,11 +300,13 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
                     if (now - pinchStartMs < HOLD_THRESHOLD_MS) {
                         if (MyAccessibilityService.tap(smoothedX, smoothedY)) {
                             cursorOverlay?.pulseClick()
+                            lastClickMs = now
                         }
                     }
                     gestureState = GestureState.IDLE
                 } else if (now - pinchStartMs >= HOLD_THRESHOLD_MS) {
                     MyAccessibilityService.longPress(pinchStartX, pinchStartY)
+                    lastClickMs = now
                     gestureState = GestureState.HOLD_ACTIVE
                 }
             }
@@ -406,8 +417,25 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
 
     private fun Bitmap.rotateIfNeeded(degrees: Int): Bitmap {
         if (degrees == 0) return this
-        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
-        return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
+
+        val targetWidth = if (degrees % 180 == 0) width else height
+        val targetHeight = if (degrees % 180 == 0) height else width
+        val rotated = if (reusableRotatedBitmap == null || reusableRotatedBitmapRotation != degrees ||
+            reusableRotatedBitmap?.width != targetWidth || reusableRotatedBitmap?.height != targetHeight
+        ) {
+            Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888).also {
+                reusableRotatedBitmap = it
+                reusableRotatedBitmapRotation = degrees
+            }
+        } else {
+            reusableRotatedBitmap!!
+        }
+
+        reusableRotationMatrix.reset()
+        reusableRotationMatrix.postRotate(degrees.toFloat())
+        reusableRotationCanvas.setBitmap(rotated)
+        reusableRotationCanvas.drawBitmap(this, reusableRotationMatrix, null)
+        return rotated
     }
 
     private fun createNotificationChannel() {
@@ -439,20 +467,17 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
 
     data class TrackingSettings(
         val cursorSensitivity: Float = 1.15f,
-        val smoothing: Float = 0.55f,
+        val smoothingAlpha: Float = 0.28f,
         val clickThreshold: Float = 0.055f,
         val scrollSpeed: Float = 1.3f,
         val backgroundTracking: Boolean = true,
         val mirrorCursor: Boolean = true
     ) {
-        val smoothingAlpha: Float
-            get() = (0.72f - smoothing * 0.54f).coerceIn(0.16f, 0.72f)
-
         companion object {
             fun from(prefs: SharedPreferences): TrackingSettings =
                 TrackingSettings(
                     cursorSensitivity = prefs.getFloat(KEY_CURSOR_SENSITIVITY, 1.15f),
-                    smoothing = prefs.getFloat(KEY_SMOOTHING, 0.55f),
+                    smoothingAlpha = prefs.getFloat(KEY_SMOOTHING, 0.28f),
                     clickThreshold = prefs.getFloat(KEY_CLICK_THRESHOLD, 0.055f),
                     scrollSpeed = prefs.getFloat(KEY_SCROLL_SPEED, 1.3f),
                     backgroundTracking = prefs.getBoolean(KEY_BACKGROUND_TRACKING, true),
@@ -468,6 +493,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         private const val TARGET_FPS = 30
         private const val TARGET_FRAME_MS = 1000L / TARGET_FPS
         private const val HOLD_THRESHOLD_MS = 500L
+        private const val CLICK_COOLDOWN_MS = 500L
         private const val JITTER_DEAD_ZONE_PX = 0.75f
         private const val MAX_RAW_JUMP_RATIO = 0.55f
         private const val MAX_STEP_RATIO = 0.28f

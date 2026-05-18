@@ -82,7 +82,7 @@ private fun HandMouseApp() {
         mutableFloatStateOf(prefs.getFloat(ForegroundTrackingService.KEY_CURSOR_SENSITIVITY, 1.15f))
     }
     var smoothing by remember {
-        mutableFloatStateOf(prefs.getFloat(ForegroundTrackingService.KEY_SMOOTHING, 0.55f))
+        mutableFloatStateOf(prefs.getFloat(ForegroundTrackingService.KEY_SMOOTHING, 0.28f))
     }
     var clickThreshold by remember {
         mutableFloatStateOf(prefs.getFloat(ForegroundTrackingService.KEY_CLICK_THRESHOLD, 0.055f))
@@ -324,7 +324,7 @@ private fun SettingsPanel(
         ) {
             Text("Settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             SettingSlider("Cursor sensitivity", cursorSensitivity, 0.6f..1.8f, onCursorSensitivityChange)
-            SettingSlider("Smoothing", smoothing, 0f..1f, onSmoothingChange)
+            SettingSlider("Smoothing alpha", smoothing, 0.1f..0.4f, onSmoothingChange)
             SettingSlider("Click threshold", clickThreshold, 0.025f..0.12f, onClickThresholdChange)
             SettingSlider("Scroll speed", scrollSpeed, 0.5f..3f, onScrollSpeedChange)
             SettingsSwitch("Mirror cursor", mirrorCursor, onMirrorCursorChange)
