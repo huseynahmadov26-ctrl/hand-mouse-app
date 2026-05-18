@@ -51,6 +51,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
     private var smoothedY = Float.NaN
     private var lastRawX = Float.NaN
     private var lastRawY = Float.NaN
+    private var lastCursorUpdateMs = 0L
     private var screenWidth = 1f
     private var screenHeight = 1f
     private var gestureState = GestureState.IDLE
@@ -208,6 +209,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
             smoothedY = Float.NaN
             lastRawX = Float.NaN
             lastRawY = Float.NaN
+            lastCursorUpdateMs = 0L
             scrollLastY = Float.NaN
             scrollAccumulator = 0f
             resetClickState()
@@ -230,12 +232,13 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
     }
 
     private fun updateCursor(targetX: Float, targetY: Float) {
-        val alpha = settings.smoothingAlpha
+        val now = SystemClock.uptimeMillis()
         if (smoothedX.isNaN() || smoothedY.isNaN()) {
             smoothedX = targetX
             smoothedY = targetY
             lastRawX = targetX
             lastRawY = targetY
+            lastCursorUpdateMs = now
             return
         }
 
@@ -247,6 +250,9 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
 
         lastRawX = targetX
         lastRawY = targetY
+        val elapsedMs = if (lastCursorUpdateMs == 0L) TARGET_FRAME_MS else (now - lastCursorUpdateMs).coerceIn(1L, 80L)
+        lastCursorUpdateMs = now
+
         val dx = targetX - smoothedX
         val dy = targetY - smoothedY
         val distance = hypot(dx.toDouble(), dy.toDouble()).toFloat()
@@ -256,6 +262,10 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
 
         val maxStep = hypot(screenWidth.toDouble(), screenHeight.toDouble()).toFloat() * MAX_STEP_RATIO
         val stepScale = if (distance > maxStep) maxStep / distance else 1f
+        val distanceBoost = (distance / CURSOR_DISTANCE_BOOST_PX).coerceIn(0f, 1f)
+        val frameScale = (elapsedMs / TARGET_FRAME_MS.toFloat()).coerceIn(0.5f, 2.2f)
+        val alpha = (settings.smoothingAlpha * (1f + distanceBoost * CURSOR_DISTANCE_BOOST) * frameScale)
+            .coerceIn(MIN_CURSOR_ALPHA, MAX_CURSOR_ALPHA)
         smoothedX += dx * alpha * stepScale
         smoothedY += dy * alpha * stepScale
         smoothedX = smoothedX.coerceIn(0f, screenWidth)
@@ -436,7 +446,7 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         val mirrorCursor: Boolean = true
     ) {
         val smoothingAlpha: Float
-            get() = (0.9f - smoothing * 0.55f).coerceIn(0.35f, 0.9f)
+            get() = (0.72f - smoothing * 0.54f).coerceIn(0.16f, 0.72f)
 
         companion object {
             fun from(prefs: SharedPreferences): TrackingSettings =
@@ -455,11 +465,16 @@ open class ForegroundTrackingService : Service(), LifecycleOwner, HandTracker.Li
         private const val TAG = "ForegroundTracking"
         private const val CHANNEL_ID = "hand_mouse"
         private const val NOTIFICATION_ID = 100
-        private const val TARGET_FPS = 24
+        private const val TARGET_FPS = 30
+        private const val TARGET_FRAME_MS = 1000L / TARGET_FPS
         private const val HOLD_THRESHOLD_MS = 500L
-        private const val JITTER_DEAD_ZONE_PX = 2.5f
-        private const val MAX_RAW_JUMP_RATIO = 0.35f
-        private const val MAX_STEP_RATIO = 0.18f
+        private const val JITTER_DEAD_ZONE_PX = 0.75f
+        private const val MAX_RAW_JUMP_RATIO = 0.55f
+        private const val MAX_STEP_RATIO = 0.28f
+        private const val MIN_CURSOR_ALPHA = 0.12f
+        private const val MAX_CURSOR_ALPHA = 0.82f
+        private const val CURSOR_DISTANCE_BOOST_PX = 180f
+        private const val CURSOR_DISTANCE_BOOST = 0.65f
         private const val DRAG_START_PX = 18f
         private const val DRAG_STEP_PX = 8f
         private const val SCROLL_TRIGGER_PX = 28f

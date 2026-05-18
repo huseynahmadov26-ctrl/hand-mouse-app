@@ -10,6 +10,7 @@ import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 import kotlin.math.hypot
+import kotlin.math.max
 
 class HandTracker(
     context: Context,
@@ -21,6 +22,8 @@ class HandTracker(
     private var processingFrame = false
     private var minFrameIntervalMs = 1000L / DEFAULT_TARGET_FPS
     private var clickThreshold = DEFAULT_CLICK_THRESHOLD
+    private var thumbIndexPinching = false
+    private var indexMiddlePinching = false
 
     init {
         val baseOptions = BaseOptions.builder()
@@ -73,29 +76,59 @@ class HandTracker(
 
         val hand = result.landmarks().firstOrNull()
         if (hand == null || hand.size <= MIDDLE_TIP) {
+            thumbIndexPinching = false
+            indexMiddlePinching = false
             listener.onHandLost()
             return
         }
 
+        val wrist = hand[WRIST]
         val thumbTip = hand[THUMB_TIP]
+        val indexMcp = hand[INDEX_MCP]
         val indexTip = hand[INDEX_TIP]
+        val middleMcp = hand[MIDDLE_MCP]
         val middleTip = hand[MIDDLE_TIP]
+        val pinkyMcp = hand[PINKY_MCP]
+
+        val palmWidth = hypot(
+            (indexMcp.x() - pinkyMcp.x()).toDouble(),
+            (indexMcp.y() - pinkyMcp.y()).toDouble()
+        ).toFloat()
+        val palmLength = hypot(
+            (wrist.x() - middleMcp.x()).toDouble(),
+            (wrist.y() - middleMcp.y()).toDouble()
+        ).toFloat()
+        val handScale = max(max(palmWidth, palmLength), MIN_HAND_SCALE)
 
         val thumbIndexDistance = hypot(
             (thumbTip.x() - indexTip.x()).toDouble(),
             (thumbTip.y() - indexTip.y()).toDouble()
-        ).toFloat()
+        ).toFloat() / handScale
         val indexMiddleDistance = hypot(
             (indexTip.x() - middleTip.x()).toDouble(),
             (indexTip.y() - middleTip.y()).toDouble()
-        ).toFloat()
+        ).toFloat() / handScale
+
+        val thumbIndexCloseThreshold = clickThreshold / DEFAULT_HAND_SCALE
+        val thumbIndexOpenThreshold = thumbIndexCloseThreshold * PINCH_RELEASE_MULTIPLIER
+        thumbIndexPinching = if (thumbIndexPinching) {
+            thumbIndexDistance < thumbIndexOpenThreshold
+        } else {
+            thumbIndexDistance < thumbIndexCloseThreshold
+        }
+
+        indexMiddlePinching = if (indexMiddlePinching) {
+            indexMiddleDistance < INDEX_MIDDLE_OPEN_THRESHOLD
+        } else {
+            indexMiddleDistance < INDEX_MIDDLE_CLOSE_THRESHOLD
+        }
 
         listener.onHandResult(
             HandResult(
                 indexX = indexTip.x().coerceIn(0f, 1f),
                 indexY = indexTip.y().coerceIn(0f, 1f),
-                thumbIndexPinching = thumbIndexDistance < clickThreshold,
-                indexMiddlePinching = indexMiddleDistance < INDEX_MIDDLE_THRESHOLD
+                thumbIndexPinching = thumbIndexPinching,
+                indexMiddlePinching = indexMiddlePinching
             )
         )
     }
@@ -115,11 +148,19 @@ class HandTracker(
 
     companion object {
         private const val MODEL_ASSET_PATH = "hand_landmarker.task"
+        private const val WRIST = 0
         private const val THUMB_TIP = 4
+        private const val INDEX_MCP = 5
         private const val INDEX_TIP = 8
+        private const val MIDDLE_MCP = 9
         private const val MIDDLE_TIP = 12
+        private const val PINKY_MCP = 17
         private const val DEFAULT_TARGET_FPS = 30
         private const val DEFAULT_CLICK_THRESHOLD = 0.055f
-        private const val INDEX_MIDDLE_THRESHOLD = 0.06f
+        private const val DEFAULT_HAND_SCALE = 0.18f
+        private const val MIN_HAND_SCALE = 0.08f
+        private const val PINCH_RELEASE_MULTIPLIER = 1.45f
+        private const val INDEX_MIDDLE_CLOSE_THRESHOLD = 0.34f
+        private const val INDEX_MIDDLE_OPEN_THRESHOLD = 0.48f
     }
 }
