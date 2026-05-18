@@ -1,5 +1,6 @@
 package com.example.handmouse
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -9,11 +10,12 @@ import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import kotlin.math.roundToInt
 
 class CursorOverlay(context: Context) {
     private val windowManager = context.getSystemService(WindowManager::class.java)
-    private val cursorSizePx = 42
+    private val cursorSizePx = 46
     private val cursorView = CursorView(context)
     private var isShown = false
 
@@ -41,13 +43,20 @@ class CursorOverlay(context: Context) {
         }
     }
 
-    fun moveTo(x: Float, y: Float, clicking: Boolean) {
+    fun moveTo(x: Float, y: Float, clicking: Boolean, scrolling: Boolean) {
         if (!isShown) return
         params.x = (x - cursorSizePx / 2f).roundToInt()
         params.y = (y - cursorSizePx / 2f).roundToInt()
         cursorView.clicking = clicking
+        cursorView.scrolling = scrolling
         windowManager.updateViewLayout(cursorView, params)
         cursorView.invalidate()
+    }
+
+    fun pulseClick() {
+        if (isShown) {
+            cursorView.pulse()
+        }
     }
 
     fun hide() {
@@ -59,10 +68,11 @@ class CursorOverlay(context: Context) {
 
     private class CursorView(context: Context) : View(context) {
         var clicking = false
+        var scrolling = false
+        private var pulseScale = 1f
 
         private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
-            color = Color.argb(235, 11, 125, 117)
         }
 
         private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -71,8 +81,29 @@ class CursorOverlay(context: Context) {
             color = Color.WHITE
         }
 
+        private val pulseAnimator = ValueAnimator.ofFloat(1.45f, 1f).apply {
+            duration = 180L
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { animator ->
+                pulseScale = animator.animatedValue as Float
+                invalidate()
+            }
+        }
+
+        fun pulse() {
+            pulseAnimator.cancel()
+            pulseAnimator.start()
+        }
+
         override fun onDraw(canvas: Canvas) {
-            val radius = if (clicking) width * 0.43f else width * 0.32f
+            fillPaint.color = when {
+                scrolling -> Color.argb(235, 25, 103, 210)
+                clicking -> Color.argb(235, 220, 60, 60)
+                else -> Color.argb(235, 11, 125, 117)
+            }
+
+            val baseRadius = if (clicking) width * 0.38f else width * 0.3f
+            val radius = baseRadius * pulseScale
             canvas.drawCircle(width / 2f, height / 2f, radius, fillPaint)
             canvas.drawCircle(width / 2f, height / 2f, radius, strokePaint)
         }

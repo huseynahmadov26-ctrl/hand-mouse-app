@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -23,17 +24,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -62,17 +68,29 @@ class MainActivity : ComponentActivity() {
 private fun HandMouseApp() {
     val context = LocalContext.current
     val lifecycleOwner = context as LifecycleOwner
+    val prefs = remember {
+        context.getSharedPreferences(ForegroundTrackingService.PREFS_NAME, Context.MODE_PRIVATE)
+    }
 
-    var cameraPermissionGranted by remember {
-        mutableStateOf(context.hasCameraPermission())
-    }
-    var overlayPermissionGranted by remember {
-        mutableStateOf(Settings.canDrawOverlays(context))
-    }
-    var accessibilityEnabled by remember {
-        mutableStateOf(context.isAccessibilityServiceEnabled())
-    }
+    var cameraPermissionGranted by remember { mutableStateOf(context.hasCameraPermission()) }
+    var overlayPermissionGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var accessibilityEnabled by remember { mutableStateOf(context.isAccessibilityServiceEnabled()) }
     var trackingEnabled by remember { mutableStateOf(false) }
+    var cursorSensitivity by remember {
+        mutableFloatStateOf(prefs.getFloat(ForegroundTrackingService.KEY_CURSOR_SENSITIVITY, 1.15f))
+    }
+    var smoothing by remember {
+        mutableFloatStateOf(prefs.getFloat(ForegroundTrackingService.KEY_SMOOTHING, 0.55f))
+    }
+    var clickThreshold by remember {
+        mutableFloatStateOf(prefs.getFloat(ForegroundTrackingService.KEY_CLICK_THRESHOLD, 0.055f))
+    }
+    var scrollSpeed by remember {
+        mutableFloatStateOf(prefs.getFloat(ForegroundTrackingService.KEY_SCROLL_SPEED, 1.3f))
+    }
+    var backgroundTracking by remember {
+        mutableStateOf(prefs.getBoolean(ForegroundTrackingService.KEY_BACKGROUND_TRACKING, true))
+    }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -80,23 +98,33 @@ private fun HandMouseApp() {
         cameraPermissionGranted = granted
         trackingEnabled = granted
         if (granted) {
-            context.startHandMouseService()
+            context.startForegroundTrackingService()
         }
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) {
-        // Android 13+ notification permission only affects the foreground notification display.
+        // Android 13+ notification permission only affects foreground notification visibility.
     }
 
-    // Refresh permission status when returning from Android settings screens.
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, backgroundTracking, trackingEnabled) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                cameraPermissionGranted = context.hasCameraPermission()
-                overlayPermissionGranted = Settings.canDrawOverlays(context)
-                accessibilityEnabled = context.isAccessibilityServiceEnabled()
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    cameraPermissionGranted = context.hasCameraPermission()
+                    overlayPermissionGranted = Settings.canDrawOverlays(context)
+                    accessibilityEnabled = context.isAccessibilityServiceEnabled()
+                }
+
+                Lifecycle.Event.ON_STOP -> {
+                    if (trackingEnabled && !backgroundTracking) {
+                        trackingEnabled = false
+                        context.stopForegroundTrackingService()
+                    }
+                }
+
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -113,6 +141,7 @@ private fun HandMouseApp() {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -136,12 +165,12 @@ private fun HandMouseApp() {
                     Button(
                         modifier = Modifier.weight(1f),
                         onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
                             if (cameraPermissionGranted) {
                                 trackingEnabled = true
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                }
-                                context.startHandMouseService()
+                                context.startForegroundTrackingService()
                             } else {
                                 cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                             }
@@ -155,7 +184,7 @@ private fun HandMouseApp() {
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5F6368)),
                         onClick = {
                             trackingEnabled = false
-                            context.stopHandMouseService()
+                            context.stopForegroundTrackingService()
                         }
                     ) {
                         Text("Stop Tracking")
@@ -183,6 +212,34 @@ private fun HandMouseApp() {
                     }
                 }
 
+                SettingsPanel(
+                    cursorSensitivity = cursorSensitivity,
+                    smoothing = smoothing,
+                    clickThreshold = clickThreshold,
+                    scrollSpeed = scrollSpeed,
+                    backgroundTracking = backgroundTracking,
+                    onCursorSensitivityChange = {
+                        cursorSensitivity = it
+                        prefs.putFloat(ForegroundTrackingService.KEY_CURSOR_SENSITIVITY, it)
+                    },
+                    onSmoothingChange = {
+                        smoothing = it
+                        prefs.putFloat(ForegroundTrackingService.KEY_SMOOTHING, it)
+                    },
+                    onClickThresholdChange = {
+                        clickThreshold = it
+                        prefs.putFloat(ForegroundTrackingService.KEY_CLICK_THRESHOLD, it)
+                    },
+                    onScrollSpeedChange = {
+                        scrollSpeed = it
+                        prefs.putFloat(ForegroundTrackingService.KEY_SCROLL_SPEED, it)
+                    },
+                    onBackgroundTrackingChange = {
+                        backgroundTracking = it
+                        prefs.putBoolean(ForegroundTrackingService.KEY_BACKGROUND_TRACKING, it)
+                    }
+                )
+
                 ServiceCameraPreviewPanel(
                     trackingEnabled = trackingEnabled,
                     cameraPermissionGranted = cameraPermissionGranted
@@ -208,10 +265,9 @@ private fun StatusPanel(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // UI status fields requested by the project brief.
-            StatusRow("Camera Permission Status", cameraPermissionGranted)
-            StatusRow("Overlay Permission Status", overlayPermissionGranted)
-            StatusRow("Accessibility Service Status", accessibilityEnabled)
+            StatusRow("Camera Permission", cameraPermissionGranted)
+            StatusRow("Overlay Permission", overlayPermissionGranted)
+            StatusRow("Accessibility Service", accessibilityEnabled)
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = if (trackingEnabled) "Tracking Enabled" else "Tracking Disabled",
@@ -239,6 +295,68 @@ private fun StatusRow(label: String, enabled: Boolean) {
 }
 
 @Composable
+private fun SettingsPanel(
+    cursorSensitivity: Float,
+    smoothing: Float,
+    clickThreshold: Float,
+    scrollSpeed: Float,
+    backgroundTracking: Boolean,
+    onCursorSensitivityChange: (Float) -> Unit,
+    onSmoothingChange: (Float) -> Unit,
+    onClickThresholdChange: (Float) -> Unit,
+    onScrollSpeedChange: (Float) -> Unit,
+    onBackgroundTrackingChange: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text("Settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            SettingSlider("Cursor sensitivity", cursorSensitivity, 0.6f..1.8f, onCursorSensitivityChange)
+            SettingSlider("Smoothing", smoothing, 0f..1f, onSmoothingChange)
+            SettingSlider("Click threshold", clickThreshold, 0.025f..0.12f, onClickThresholdChange)
+            SettingSlider("Scroll speed", scrollSpeed, 0.5f..3f, onScrollSpeedChange)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Run in Background")
+                Switch(
+                    checked = backgroundTracking,
+                    onCheckedChange = onBackgroundTrackingChange
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label)
+            Text(String.format("%.2f", value), color = Color(0xFF5F6368))
+        }
+        Slider(value = value, onValueChange = onValueChange, valueRange = range)
+    }
+}
+
+@Composable
 private fun ServiceCameraPreviewPanel(
     trackingEnabled: Boolean,
     cameraPermissionGranted: Boolean
@@ -246,7 +364,7 @@ private fun ServiceCameraPreviewPanel(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(420.dp),
+            .height(360.dp),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF111418))
     ) {
@@ -274,18 +392,23 @@ private fun ServiceCameraPreview() {
             }
         },
         update = { previewView ->
-            // The foreground service owns CameraX. This UI only supplies the preview surface.
-            // Hand tracking logic runs in HandMouseService through the ImageAnalysis use case.
-            HandMouseService.attachPreview(previewView.surfaceProvider)
+            ForegroundTrackingService.attachPreview(previewView.surfaceProvider)
         }
     )
 
     DisposableEffect(Unit) {
         onDispose {
-            // When the app UI disappears, the service keeps hand tracking with analysis only.
-            HandMouseService.attachPreview(null)
+            ForegroundTrackingService.attachPreview(null)
         }
     }
+}
+
+private fun SharedPreferences.putFloat(key: String, value: Float) {
+    edit().putFloat(key, value).apply()
+}
+
+private fun SharedPreferences.putBoolean(key: String, value: Boolean) {
+    edit().putBoolean(key, value).apply()
 }
 
 private fun Context.hasCameraPermission(): Boolean =
@@ -293,7 +416,6 @@ private fun Context.hasCameraPermission(): Boolean =
         PackageManager.PERMISSION_GRANTED
 
 private fun Context.openOverlaySettings() {
-    // Overlay handling will be added later with WindowManager and SYSTEM_ALERT_WINDOW.
     val intent = Intent(
         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
         Uri.parse("package:$packageName")
@@ -301,22 +423,21 @@ private fun Context.openOverlaySettings() {
     startActivity(intent)
 }
 
-private fun Context.startHandMouseService() {
-    val intent = Intent(this, HandMouseService::class.java).apply {
-        action = HandMouseService.ACTION_START
+private fun Context.startForegroundTrackingService() {
+    val intent = Intent(this, ForegroundTrackingService::class.java).apply {
+        action = ForegroundTrackingService.ACTION_START
     }
     ContextCompat.startForegroundService(this, intent)
 }
 
-private fun Context.stopHandMouseService() {
-    val intent = Intent(this, HandMouseService::class.java).apply {
-        action = HandMouseService.ACTION_STOP
+private fun Context.stopForegroundTrackingService() {
+    val intent = Intent(this, ForegroundTrackingService::class.java).apply {
+        action = ForegroundTrackingService.ACTION_STOP
     }
     startService(intent)
 }
 
 private fun Context.isAccessibilityServiceEnabled(): Boolean {
-    // Accessibility tap handling will be added later inside MyAccessibilityService.
     val expectedServiceName = ComponentName(this, MyAccessibilityService::class.java)
         .flattenToString()
     val enabledServices = Settings.Secure.getString(

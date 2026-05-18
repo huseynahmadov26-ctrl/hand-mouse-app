@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">Hand Mouse</string>
     <string name="accessibility_service_label">Hand Mouse Accessibility Service</string>
-    <string name="accessibility_service_description">Allows Hand Mouse to tap the screen when a pinch gesture is detected.</string>
+    <string name="accessibility_service_description">Allows Hand Mouse to tap, long press, drag, and scroll using hand gestures.</string>
     <string name="notification_channel_name">Hand Mouse Tracking</string>
-    <string name="notification_title">Hand Mouse is running</string>
-    <string name="notification_text">Move your index finger to control the cursor. Pinch to tap.</string>
+    <string name="notification_title">Hand Mouse Running</string>
+    <string name="notification_text">Index finger controls the cursor. Pinch to click, hold, drag, or scroll.</string>
 </resources>
